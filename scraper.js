@@ -1,65 +1,83 @@
 const puppeteer = require("puppeteer");
 const mongoose = require("mongoose");
-
 const uri = 'mongodb+srv://sumitbaudh2205:yUkHfLNv5DWsz6zy@sarakari-tender.neegz.mongodb.net/scrapper?retryWrites=true&w=majority&appName=sarakari-tender'
-const localUri = 'mongodb://localhost:27017/scraper'
+
+const MONGO_URI = uri || "mongodb://localhost:27017/scraper";
+
 // MongoDB Connection
-mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
+mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log("✅ MongoDB connected"))
+  .catch(err => console.error("❌ MongoDB connection error:", err));
 
 const TenderSchema = new mongoose.Schema({
   title: String,
-  referenceNo:  { type: String, index: true },
+  referenceNo: { type: String, index: true },
   closingDate: String,
   bidOpeningDate: String,
   link: String
-},
-{ timestamps: true }
-);
+}, { timestamps: true });
+
 const Tenders = mongoose.model("Tenders", TenderSchema);
 
 async function scrapeTender() {
-  const browser = await puppeteer.launch({
-    executablePath: puppeteer.executablePath(),
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  });
-  const page = await browser.newPage();
+  console.log("🚀 Starting scraper...");
+  let browser;
 
-  await page.goto("https://etender.up.nic.in/nicgep/app", { waitUntil: "domcontentloaded" });
-
-  const jobData = await page.evaluate(() => {
-    let jobs = [];
-    document.querySelectorAll("#activeTenders tr").forEach(row => {
-        const columns = row.querySelectorAll("td");
-        if (columns.length === 4) { // Ensure it's a valid row
-            jobs.push({
-                title: columns[0]?.innerText.trim(),
-                referenceNo: columns[1]?.innerText.trim(),
-                closingDate: columns[2]?.innerText.trim(),
-                bidOpeningDate: columns[3]?.innerText.trim(),
-                link: columns[0]?.querySelector("a")?.href || null
-            });
-        }
+  try {
+    browser = await puppeteer.launch({
+      headless: "new", // Use "new" mode for stability
+      args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
-    return jobs;
-});
 
-  console.log("Scraped Jobs:", jobData);
-  const bulkOps = jobData.map(tender => ({
-    updateOne: {
-      filter: { referenceNo: tender.referenceNo }, // Match existing document by referenceNo
-      update: {
-        $set: tender, // Update the fields
-        $currentDate: { updatedAt: true } // Auto-update `updatedAt`
-      },
-      upsert: true // Insert if not exists
+    const page = await browser.newPage();
+    await page.goto("https://etender.up.nic.in/nicgep/app", { waitUntil: "domcontentloaded" });
+
+    const jobData = await page.evaluate(() => {
+      let jobs = [];
+      document.querySelectorAll("#activeTenders tr").forEach(row => {
+        const columns = row.querySelectorAll("td");
+        if (columns.length === 4) {
+          jobs.push({
+            title: columns[0]?.innerText.trim(),
+            referenceNo: columns[1]?.innerText.trim(),
+            closingDate: columns[2]?.innerText.trim(),
+            bidOpeningDate: columns[3]?.innerText.trim(),
+            link: columns[0]?.querySelector("a")?.href || null
+          });
+        }
+      });
+      return jobs;
+    });
+
+    console.log(`✅ Scraped ${jobData.length} tenders.`);
+
+    if (jobData.length > 0) {
+      const bulkOps = jobData.map(tender => ({
+        updateOne: {
+          filter: { referenceNo: tender.referenceNo }, // Match existing document
+          update: { $set: tender },
+          upsert: true // Insert if not exists
+        }
+      }));
+
+      await Tenders.bulkWrite(bulkOps);
+      console.log("✅ Data saved to MongoDB.");
+    } else {
+      console.log("⚠️ No tenders found.");
     }
-}));
-
-  // Save Jobs to MongoDB
-  await Tenders.bulkWrite(bulkOps).catch(err => console.log(err.message));
-
-  await browser.close();
+  } catch (error) {
+    console.error("❌ Error in scraping:", error);
+  } finally {
+    if (browser) await browser.close();
+    mongoose.connection.close(); // Close MongoDB connection
+    console.log("🔄 Script completed, exiting...");
+    process.exit(0); // Ensure script exits
+  }
 }
 
 module.exports = scrapeTender;
+
+// Run directly if script is executed (not imported)
+if (require.main === module) {
+  scrapeTender();
+}

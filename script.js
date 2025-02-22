@@ -1,2 +1,2 @@
-const scrapeTender = require('./scraper');
-scrapeTender();
+import scrapeTender from "./scraper.js";
+await scrapeTender();
