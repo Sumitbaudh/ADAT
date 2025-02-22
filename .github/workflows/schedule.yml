@@ -17,4 +17,4 @@ jobs:
       - name: Install Dependencies
         run: npm install
       - name: Run Script
-        run: node your-script.js
+        run: node script.js
