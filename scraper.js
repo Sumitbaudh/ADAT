@@ -18,7 +18,11 @@ const TenderSchema = new mongoose.Schema({
 const Tenders = mongoose.model("Tenders", TenderSchema);
 
 async function scrapeTender() {
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({
+    executablePath: puppeteer.executablePath(),
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+  });
   const page = await browser.newPage();
 
   await page.goto("https://etender.up.nic.in/nicgep/app", { waitUntil: "domcontentloaded" });
