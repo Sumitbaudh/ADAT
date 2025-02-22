@@ -1,19 +1,23 @@
 const puppeteer = require("puppeteer");
 const mongoose = require("mongoose");
 
+const uri = 'mongodb+srv://sumitbaudh2205:yUkHfLNv5DWsz6zy@sarakari-tender.neegz.mongodb.net/scrapper?retryWrites=true&w=majority&appName=sarakari-tender'
+const localUri = 'mongodb://localhost:27017/scraper'
 // MongoDB Connection
-mongoose.connect("mongodb://localhost:27017/scraper", { useNewUrlParser: true, useUnifiedTopology: true });
+mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true });
 
 const TenderSchema = new mongoose.Schema({
   title: String,
-  referenceNo: String,
+  referenceNo:  { type: String, index: true },
   closingDate: String,
   bidOpeningDate: String,
   link: String
-});
+},
+{ timestamps: true }
+);
 const Tenders = mongoose.model("Tenders", TenderSchema);
 
-async function scrapeJobs() {
+async function scrapeTender() {
   const browser = await puppeteer.launch({ headless: true });
   const page = await browser.newPage();
 
@@ -37,12 +41,21 @@ async function scrapeJobs() {
 });
 
   console.log("Scraped Jobs:", jobData);
+  const bulkOps = jobData.map(tender => ({
+    updateOne: {
+      filter: { referenceNo: tender.referenceNo }, // Match existing document by referenceNo
+      update: {
+        $set: tender, // Update the fields
+        $currentDate: { updatedAt: true } // Auto-update `updatedAt`
+      },
+      upsert: true // Insert if not exists
+    }
+}));
 
   // Save Jobs to MongoDB
-  await Tenders.insertMany(jobData, { ordered: false }).catch(err => console.log(err.message));
+  await Tenders.bulkWrite(bulkOps).catch(err => console.log(err.message));
 
   await browser.close();
 }
 
-// Run the scraper
-scrapeJobs();
+module.exports = scrapeTender;
