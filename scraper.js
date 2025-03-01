@@ -1,72 +1,33 @@
 const puppeteer = require("puppeteer");
 const mongoose = require("mongoose");
-const uri = 'mongodb+srv://sumitbaudh2205:yUkHfLNv5DWsz6zy@sarakari-tender.neegz.mongodb.net/scrapper?retryWrites=true&w=majority&appName=sarakari-tender'
 
-const MONGO_URI = uri || "mongodb://localhost:27017/scraper";
-
-// MongoDB Connection
-mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch(err => console.error("❌ MongoDB connection error:", err));
-
-const TenderSchema = new mongoose.Schema({
-  title: String,
-  referenceNo: { type: String, index: true },
-  closingDate: String,
-  bidOpeningDate: String,
-  link: String
-}, { timestamps: true });
-
-const Tenders = mongoose.model("Tenders", TenderSchema);
-
-async function scrapeTender() {
+async function scrapeTender(url, scrapperFunc, dbInstance) {
   console.log("🚀 Starting scraper...");
   let browser;
 
   try {
     browser = await puppeteer.launch({
       headless: "new", // Use "new" mode for stability
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
 
     const page = await browser.newPage();
-    await page.goto("https://etender.up.nic.in/nicgep/app", { waitUntil: "domcontentloaded" });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
 
-    const jobData = await page.evaluate(() => {
-      let jobs = [];
-      document.querySelectorAll("#activeTenders tr").forEach(row => {
-        const columns = row.querySelectorAll("td");
-        if (columns.length === 4) {
-          let link = columns[0]?.querySelector("a")?.href ? new URL(columns[0]?.querySelector("a")?.href) : null;
-          if(link){
-            link.searchParams.delete("session")
-            link = link.toString();
-          }
-          
-          jobs.push({
-            title: columns[0]?.innerText.trim(),
-            referenceNo: columns[1]?.innerText.trim(),
-            closingDate: columns[2]?.innerText.trim(),
-            bidOpeningDate: columns[3]?.innerText.trim(),
-            link
-          });
-        }
-      });
-      return jobs;
-    });
+    const jobData = await page.evaluate(scrapperFunc);
 
     console.log(`✅ Scraped ${jobData.length} tenders.`);
 
     if (jobData.length > 0) {
-      const bulkOps = jobData.map(tender => ({
+      const bulkOps = jobData.map((tender) => ({
         updateOne: {
           filter: { referenceNo: tender.referenceNo }, // Match existing document
           update: { $set: tender },
-          upsert: true // Insert if not exists
-        }
+          upsert: true, // Insert if not exists
+        },
       }));
 
-      await Tenders.bulkWrite(bulkOps);
+      await dbInstance.bulkWrite(bulkOps);
       console.log("✅ Data saved to MongoDB.");
     } else {
       console.log("⚠️ No tenders found.");
