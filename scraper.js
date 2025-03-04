@@ -19,9 +19,71 @@ async function scrapeTender(url, scrapperFunc, dbInstance) {
     console.log(`✅ Scraped ${jobData.length} tenders.`);
 
     if (jobData.length > 0) {
+      for (let tender of jobData) {
+        if (tender.link) {
+          console.log(`🔍 Scraping details from ${tender.link}`);
+
+          const detailPage = await browser.newPage();
+          await detailPage.goto(tender.link, { waitUntil: "domcontentloaded" });
+
+          const additionalData = await detailPage.evaluate(() => {
+            const getText = (selector) =>
+              document.querySelector(selector)?.innerText.trim() || "";
+
+            return {
+              organisationChain: getText(".tablebg .td_field[colspan='5']"),
+              tenderReferenceNumber: getText(".tablebg .td_field[colspan='3']"),
+              tenderID: getText(
+                ".tablebg tr:nth-child(3) .td_field:nth-child(2)"
+              ),
+              withdrawalAllowed: getText(
+                ".tablebg tr:nth-child(3) .td_field:nth-child(4)"
+              ),
+              tenderType: getText(
+                ".tablebg tr:nth-child(4) .td_field:nth-child(2)"
+              ),
+              formOfContract: getText(
+                ".tablebg tr:nth-child(4) .td_field:nth-child(4)"
+              ),
+              tenderCategory: getText(
+                ".tablebg tr:nth-child(5) .td_field:nth-child(1)"
+              ),
+              numberOfCovers: getText(
+                ".tablebg tr:nth-child(5) .td_field:nth-child(2)"
+              ),
+              generalTechnicalEvaluationAllowed: getText(
+                ".tablebg tr:nth-child(6) .td_field:nth-child(1)"
+              ),
+              itemWiseTechnicalEvaluationAllowed: getText(
+                ".tablebg tr:nth-child(6) .td_field:nth-child(2)"
+              ),
+              paymentMode: getText(
+                ".tablebg tr:nth-child(7) .td_field:nth-child(1)"
+              ),
+              isMultiCurrencyAllowedForBOQ: getText(
+                ".tablebg tr:nth-child(7) .td_field:nth-child(2)"
+              ),
+              isMultiCurrencyAllowedForFee: getText(
+                ".tablebg tr:nth-child(8) .td_field:nth-child(1)"
+              ),
+              allowTwoStageBidding: getText(
+                ".tablebg tr:nth-child(8) .td_field:nth-child(2)"
+              ),
+            };
+          });
+
+          // Merge additional details into tender object
+          Object.assign(tender, additionalData);
+
+          await detailPage.close();
+        }
+      }
+    }
+
+    if (jobData.length > 0) {
       const bulkOps = jobData.map((tender) => ({
         updateOne: {
-          filter: { referenceNo: tender.referenceNo }, // Match existing document
+          filter: { tenderID: tender.tenderID }, // Match existing document
           update: { $set: tender },
           upsert: true, // Insert if not exists
         },
